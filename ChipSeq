@@ -1,0 +1,65 @@
+Trim low-quality base and adapter using trimgalor and fastqc
+# check QC within the same directory of the fastq
+# -t number of threads
+fastqc -t 6 *.fq.gz
+multiqc .
+# open file for view or could use xdg-open
+firefox multiqc_report.html
+
+# or create a folder such as trim
+mkdir trim
+cd trim
+# and run the following command
+# for individual pair end file
+# length parameter is set minimum pair-end length
+trim_galore --paired --length 50 --cores 4 --fastqc R1.fastq R2.fstq
+# or for all files
+for i in *R1_001.fastq.gz; do j=${i/R1/R2} ; trim_galore --paired  --cores  4 --fastqc  $i $j ; done
+# --fastqc will run the fastqc and remove any low-quality reads
+
+Build bowtie2 index and map reads
+# create bowtie2 index using Arlee refrence genome  
+bowtie2-build GCF_013265735.2_USDA_OmykA_1.1_genomic.fna Arleebowtie2
+
+# map reads
+# for pair-end reads adding the 2>> tmp_file will save the state of the mapping
+ for i in *R1_001_val_1.fq.gz ; do echo $i >> map_stat  ; j=${i/R1/R2} ; out=${i/R1_001_val_1\.fq\.gz/Arl\.bam}; out=${out/fastq/trim}; bowtie2  -q --end-to-end --very-sensitive  -x /scratch3/trout_ChipSeq/genomeArlee/Arleebowtie2   -p 24  -k 10 -x  /path_to_refrence_genome/Arlee_bowtie/Arleebowtie2 -q  $i   $j 2>> map_stat  |  samtools     view  -h -bS -o $out; done
+ 
+ # Using Samtools, sort the bam file and create an index file
+ # sort bam and create an index
+ for i in *bam; do samtools index $i ; done
+ for i in *bam ; do  out=${i/\.bam/sorted\.bam} ; samtools sort --threads 6 $i -o $out ; done
+ 
+ # filter based on 20 q
+ for i in *sorted.bam ; do out=${i/sorted/filtered_sorted};  samtools view  -q 20 -b -o     $out  $i  ; done
+ for i in *filtered_sorted.bam ; do  samtools index  $i  ; done
+
+ # Use picard tools to mark duplicate                                                                      
+for i in *filtered_sorted.bam; do out=${i/orted/orted_PCRDup};  java -jar ~/path_to_Picard/picard.jar MarkDuplicates I=$i O=$out  M=Aligned_Sorted_PCRD.txt AS=true ; done
+
+
+Use macs tool for peak calling
+# The following parameters were used for macs2
+  -n: name string
+  -g: genome size as 2341688614
+  --keep-dup, '3': this is an arbitrary number, and we select to keep three  
+  --extsize, '200': extend reads in 5'->3' direction to 200 bp
+  -B: store the fragment pileup, control lambda in bedGraph files
+  --SPMR 
+  -q, '0.01' for narrow marks
+  -q, '0.05' for broad marks
+ # We calculated peak numbers for each mark as follows:
+ # narrow_peaks: [H3K4me3, H3K4me1, H3K27ac]
+ # broad_peaks: [H3K27me3]
+  
+ # narrow peaks calling
+ # [H3K4me3, H3K4me1, H3K27ac]
+for i in  H3K4me3*PCRDup.bam; do in=${i/H3K4me3/Input}; outdir=${i/H3K4me3*PCRDup\.bam/Peak_H3K4me3}  ; out=${i/sorted_PCRDup\.bam/NarrowPeak};  out=${out/\/nfshome\/path\/Chipseq\/Map_0_sort\//}; macs3 callpeak -t $i -c $in -f BAM -g 2.3e9 -n $out --outdir $outdir  --keep-dup 3 -B --SPMR -q 0.01   ; done
+ 
+ # broad peaks calling 
+ for i in  H3K27me3*PCRDup.bam; do in=${i/H3K27me3/Input}; outdir=${i/H3K27me3*PCRDup\.bam/Peak_H3K27me3}  ;out=${i/sorted_PCRDup\.bam/NarrowSpecialPeak};      out=${out/\/nfshome\/path\/Chipseq\/Map_0_sort\//}; macs3 callpeak -t $i -c $in -f BAM -g 2.3e9 -n $out --outdir $outdir  --keep-dup 3 -B --SPMR  --broad --broad-cutoff 0.1   ;  done
+
+Peak annotation
+# We use ChIPseeker R package for annotation 
+# and we Use the Homer to annotate the peaks
+for i in *summits.bed ; do out=${i/summits\.bed/Annotated\.csv} ; annotatePeaks.pl $i  /localstorage/TroutNewGenome/OmyArlee_1_1/TroutArlee.fa -gtf /localstorage/TroutNewGenome/OmyArlee_1_1/TroutArlee.gtf 2>> Annotatio_stat.txt > $out ; done
