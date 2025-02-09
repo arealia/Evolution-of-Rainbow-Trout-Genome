@@ -1,0 +1,11 @@
+#Generate BLAST results
+blastall  -i  query_file  -d database -p blastp -e 1e-10 -b 5 -v 5 -m 8 -o xyz.blast
+
+#Prepare gene position file (xyz.bed) in tab-delimited format
+chr#    starting_position    ending_position    gene
+
+#Run MCScanX (ensure xyz.blast and xyz.bed are in the same folder)
+./MCScanX dir/xyz
+
+#Classify duplicate genes
+./duplicate_gene_classifier dir/xyz
