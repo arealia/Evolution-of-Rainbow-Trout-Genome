@@ -1,0 +1,8 @@
+#In R, enter the following command to load CDROM.R:
+>source(“CDROM.R”)
+
+#Type the following command to run CDROM with default parameters:
+>CDROM(dupFile=“trout_pike_dups”, singleFile=“trout_pike_singles”, exprFile1=“trout_expr”, exprFile2=“pike_expr”)
+
+#Type the following command to separate dup1 and dup2:
+>CDROM(dupFile=“trout_pike_dups”, singleFile=“trout_pike_singles”, exprFile1=“trout_expr”, exprFile2=“pike_expr”, PC = TRUE)
