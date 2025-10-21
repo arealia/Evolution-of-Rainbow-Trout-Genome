@@ -1,26 +1,55 @@
-# Step 1: Align cDNA sequences
-minimap2 -t 30 -ax splice -uf --secondary=no -C5 -O6,24 -B4 ref_genome.fasta all_cDNA.fa > cDNA.sam
-samtools view -Sb cDNA.sam | samtools sort -o cDNA.bam
-samtools index cDNA.bam
+Step 1: Align cDNA to genome and collapse isoforms
+minimap2 -t 30 -ax splice -uf --secondary=no -C5 -O6,24 -B4 genome.fa cDNA.fq > cDNA.sam
+sort -k 3,3 -k 4,4n cDNA.sam > cDNA.sorted.sam
+python collapse_isoforms_by_sam.py --input cDNA.fq --fq \
+  -s cDNA.sorted.sam --dun-merge-5-shorter -o cDNA_collapsed
 
-# Step 2: De novo gene prediction
-augustus --species=danio_rerio genome.fa > augustus_predictions.gtf
+Step 2: De novo gene prediction with Augustus
+augustus --species=zebrafish genome.fa > augustus_predictions.gtf
 
-# Step 3: Align RNA-Seq datasets and assemble transcripts
-hisat2 -x ref_genome_index -U sample_R1.fastq -S sample.sam
-samtools sort -o sample.bam sample.sam
-stringtie sample.bam -o sample.gtf -A sample.abundance.txt
+Step 3: RNA-seq alignment and transcript assembly
+# Build HISAT2 index
+hisat2-build -p 8 genome.fa OmyK2
 
-# Step 4: Merge high-confidence transcripts
-stringtie --merge -o merged_transcripts.gtf *.gtf
-filter_transcripts.py --min_tpm 2 --min_length 500 --min_coverage 10 merged_transcripts.gtf > filtered.gtf
+# Align single-end RNA-seq reads
+hisat2 -p 8 -x OmyK2 -U SRR10911462.fastq.gz -S SRR10911462_aligned.sam --summary-file SRR10911462_alignment_summary.txt
 
-# Step 5: Combine homology, de novo, and RNA-seq predictions
-python combine_annotations.py augustus_predictions.gtf filtered.gtf > combined.gtf
+# Convert and sort BAM
+samtools view -b SRR10911462_aligned.sam > SRR10911462_aligned.bam
+samtools sort -@ 8 SRR10911462_aligned.bam -o SRR10911462_aligned.sorted.bam
+samtools index SRR10911462_aligned.sorted.bam
 
-# Step 6: Collapse redundant transcripts
-collapse_isoforms_by_sam.py --input combined.gtf --identity 0.95 --coverage 0.99 --output collapsed.gtf
+# Transcriptome assembly
+stringtie SRR10911462_aligned.sorted.bam -o stringtie.gtf -p 8
 
-# Step 7: Predict ORFs and filter by BLAST
-gmsn.pl --faa predicted_proteins.faa --output gms_output
-blastp -query gms_output.faa -db fish_proteins -evalue 1e-5 -perc_identity 90 -qcov_hsp_perc 90 -out blast_filtered.txt
+# Merge transcripts from multiple samples (assuming mergelist.txt contains paths)
+stringtie --merge -o stringtie_merged.gtf mergelist.txt
+
+Step 4: Extract transcript sequences from annotations
+gffread -w transcripts.fa -g genome.fa combined_annotations.gff
+# 'combined_annotations.gff' includes results from Step 1, 2, 3 merged earlier
+
+Step 5: Concatenate cDNA sequences from all sources
+cat cDNA_collapsed.fasta augustus_predictions.fasta stringtie_transcripts.fa > merged.fa
+
+Step 6: Align merged cDNA and collapse transcripts again
+minimap2 -t 30 -ax splice -uf --secondary=no -C5 -O6,24 -B4 genome.fa merged.fa > merged.sam
+sort -k 3,3 -k 4,4n merged.sam > merged.sorted.sam
+python collapse_isoforms_by_sam.py --input merged.fa --fq \
+  -s merged.sorted.sam --dun-merge-5-shorter -o final_transcripts
+
+Step 7: Predict coding regions with GeneMarkS-T
+./gmst.pl --strand direct --format GFF --output proteins --faa --fnn final_transcripts.fasta
+
+Step 8: Protein homology & filtering
+# Concatenate protein FASTA files from 10 fish species (download separately)
+cat *.fa > fish_species_proteins.fa
+
+# Build BLAST database
+makeblastdb -in fish_species_proteins.fa -dbtype prot -out fish_blastdb
+
+# BLAST predicted proteins against database
+blastall -i proteins.faa -d fish_blastdb -p blastp -e 1e-10 -b 5 -v 5 -m 8 -o query.blast
+
+# Keep best hits per query protein
+sort -k1,1 -k12,12nr query.blast | awk '!seen[$1]++' > best_hits.blast
