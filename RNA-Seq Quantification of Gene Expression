@@ -1,0 +1,16 @@
+# Step 1: Download RNA-seq data
+prefetch SRRXXXXXX && fasterq-dump SRRXXXXXX -e 6 -p
+
+# Step 2: Quality trimming
+clc_quality_trim --input SRRXXXXXX.fastq --output SRRXXXXXX_trimmed.fastq
+
+# Step 3: Genome alignment
+hisat2 -p 8 -x ref_genome_index -U SRRXXXXXX_trimmed.fastq -S SRRXXXXXX.sam
+samtools sort -@ 8 -o SRRXXXXXX.bam SRRXXXXXX.sam
+samtools index SRRXXXXXX.bam
+
+# Step 4: Expression quantification
+TPMCalculator -g ref_annotation.gtf -b SRRXXXXXX.bam -e TPM_output.txt
+
+# Step 5: Merge expression results
+merge_tpm_results.py --input TPM_output_files/ --output combined_TPM_matrix.tsv
