@@ -10,12 +10,16 @@ gzip ./fastq/SRR10911462_*.fastq
 4. Build HISAT2 genome index (assuming reference genome fasta genome.fa):
 hisat2-build -p 8 genome.fa OmyK2
 
-5. Align paired-end reads to genome:
+5. 
+# Align paired-end reads to genome:
 hisat2 -p 8 -x OmyK2 \
   -1 ./fastq/SRR10911462_1.fastq.gz \
   -2 ./fastq/SRR10911462_2.fastq.gz \
   -S SRR10911462_aligned.sam \
   --summary-file SRR10911462_alignment_summary.txt
+
+# Align single-end RNA-seq reads
+hisat2 -p 8 -x OmyK2 -U SRR10911462.fastq.gz -S SRR10911462_aligned.sam --summary-file SRR10911462_alignment_summary.txt
 
 6. Convert SAM to sorted BAM and index using samtools:
 samtools view -b SRR10911462_aligned.sam > SRR10911462_aligned.bam
