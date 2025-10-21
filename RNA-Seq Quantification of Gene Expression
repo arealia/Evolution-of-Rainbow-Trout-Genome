@@ -1,16 +1,26 @@
-# Step 1: Download RNA-seq data
-prefetch SRRXXXXXX && fasterq-dump SRRXXXXXX -e 6 -p
+1. Download SRA file using prefetch:
+prefetch -v SRR10911462
 
-# Step 2: Quality trimming
-clc_quality_trim --input SRRXXXXXX.fastq --output SRRXXXXXX_trimmed.fastq
+2. Convert SRA to paired-end gzipped FASTQ files using fasterq-dump:
+fasterq-dump --split-files --threads 6 SRR10911462 -O ./fastq/
+gzip ./fastq/SRR10911462_*.fastq
 
-# Step 3: Genome alignment
-hisat2 -p 8 -x ref_genome_index -U SRRXXXXXX_trimmed.fastq -S SRRXXXXXX.sam
-samtools sort -@ 8 -o SRRXXXXXX.bam SRRXXXXXX.sam
-samtools index SRRXXXXXX.bam
+3. Quality trimming with CLC Genomics Workbench.
 
-# Step 4: Expression quantification
-TPMCalculator -g ref_annotation.gtf -b SRRXXXXXX.bam -e TPM_output.txt
+4. Build HISAT2 genome index (assuming reference genome fasta genome.fa):
+hisat2-build -p 8 genome.fa OmyK2
 
-# Step 5: Merge expression results
-merge_tpm_results.py --input TPM_output_files/ --output combined_TPM_matrix.tsv
+5. Align paired-end reads to genome:
+hisat2 -p 8 -x OmyK2 \
+  -1 ./fastq/SRR10911462_1.fastq.gz \
+  -2 ./fastq/SRR10911462_2.fastq.gz \
+  -S SRR10911462_aligned.sam \
+  --summary-file SRR10911462_alignment_summary.txt
+
+6. Convert SAM to sorted BAM and index using samtools:
+samtools view -b SRR10911462_aligned.sam > SRR10911462_aligned.bam
+samtools sort -@ 8 SRR10911462_aligned.bam -o SRR10911462_aligned.sorted.bam
+samtools index SRR10911462_aligned.sorted.bam
+
+7. Expression quantification "calculate TPM for multiple bam files in a directory"
+TPMCalculator -g ref_annotation.gtf -d /home/salemlab/Documents/Bam/ -t transcript_id -e -a
