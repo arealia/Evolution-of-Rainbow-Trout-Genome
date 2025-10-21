@@ -1,0 +1,26 @@
+# Step 1: Align cDNA sequences
+minimap2 -t 30 -ax splice -uf --secondary=no -C5 -O6,24 -B4 ref_genome.fasta all_cDNA.fa > cDNA.sam
+samtools view -Sb cDNA.sam | samtools sort -o cDNA.bam
+samtools index cDNA.bam
+
+# Step 2: De novo gene prediction
+augustus --species=danio_rerio genome.fa > augustus_predictions.gtf
+
+# Step 3: Align RNA-Seq datasets and assemble transcripts
+hisat2 -x ref_genome_index -U sample_R1.fastq -S sample.sam
+samtools sort -o sample.bam sample.sam
+stringtie sample.bam -o sample.gtf -A sample.abundance.txt
+
+# Step 4: Merge high-confidence transcripts
+stringtie --merge -o merged_transcripts.gtf *.gtf
+filter_transcripts.py --min_tpm 2 --min_length 500 --min_coverage 10 merged_transcripts.gtf > filtered.gtf
+
+# Step 5: Combine homology, de novo, and RNA-seq predictions
+python combine_annotations.py augustus_predictions.gtf filtered.gtf > combined.gtf
+
+# Step 6: Collapse redundant transcripts
+collapse_isoforms_by_sam.py --input combined.gtf --identity 0.95 --coverage 0.99 --output collapsed.gtf
+
+# Step 7: Predict ORFs and filter by BLAST
+gmsn.pl --faa predicted_proteins.faa --output gms_output
+blastp -query gms_output.faa -db fish_proteins -evalue 1e-5 -perc_identity 90 -qcov_hsp_perc 90 -out blast_filtered.txt
